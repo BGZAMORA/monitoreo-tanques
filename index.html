@@ -11,7 +11,7 @@ const char* ssid = "CNT_ZAMORA_2G";
 const char* password = "1003659636";
 
 // ===== SUPABASE =====
-const char* supabaseUrl = "https://TU_SUPABASE_URL.supabase.co/rest/v1/readings";
+const char* supabaseUrl = "https://cdkmxeuktheztkxkyimk.supabase.co/rest/v1";
 const char* supabaseKey = "sb_publishable_nRag0yBaTFVIxXoFKd-tXg_0xdA8rkY";
 
 // ===== DEVICE =====
@@ -128,3 +128,4 @@ void goToSleep() {
   esp_sleep_enable_timer_wakeup((uint64_t)SLEEP_TIME * 1000000);
   esp_deep_sleep_start();
 }
+
