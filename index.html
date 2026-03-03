@@ -1,201 +1,79 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Monitoreo SaaS - Bryan</title>
+  <title>Panel de Control - Bryan</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
-    body {
-      margin: 0;
-      font-family: 'Segoe UI', sans-serif;
-      background: #0f172a;
-      color: white;
-      padding: 30px;
-    }
-
-    h1 {
-      text-align: center;
-      margin-bottom: 40px;
-      font-weight: 300;
-    }
-
-    .container {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 20px;
-      justify-content: center;
-    }
-
-    .tank-card {
-      background: #1e293b;
-      width: 250px;
-      padding: 20px;
-      border-radius: 12px;
-      transition: 0.2s;
-      box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-    }
-
-    .tank-name {
-      font-size: 22px;
-      font-weight: bold;
-      cursor: pointer;
-    }
-
-    .tank-last {
-      margin-top: 10px;
-      font-size: 18px;
-      color: #10b981;
-      cursor: pointer;
-    }
-
-    .btn-medir {
-      background: #10b981;
-      color: white;
-      border: none;
-      padding: 10px;
-      width: 100%;
-      border-radius: 8px;
-      cursor: pointer;
-      font-weight: bold;
-      margin-top: 15px;
-      transition: 0.3s;
-    }
-
-    .btn-medir:hover {
-      background: #059669;
-      transform: scale(1.02);
-    }
-
-    #chartBox {
-      display: none;
-      margin-top: 50px;
-      background: #1e293b;
-      padding: 20px;
-      border-radius: 12px;
-      max-width: 800px;
-      margin-left: auto;
-      margin-right: auto;
-    }
+    body { margin: 0; font-family: 'Segoe UI', sans-serif; background: #0f172a; color: white; padding: 30px; text-align: center; }
+    .container { display: flex; flex-wrap: wrap; gap: 20px; justify-content: center; margin-top: 30px; }
+    .tank-card { background: #1e293b; width: 260px; padding: 25px; border-radius: 15px; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5); border: 1px solid #334155; }
+    .tank-name { font-size: 24px; font-weight: bold; color: #f8fafc; margin-bottom: 10px; }
+    .temp-val { font-size: 32px; color: #10b981; font-weight: bold; margin: 15px 0; }
+    .btn-medir { background: #10b981; color: white; border: none; padding: 12px; width: 100%; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.3s; }
+    .btn-medir:hover { background: #059669; transform: translateY(-2px); }
+    #chartBox { display: none; margin: 50px auto; background: #1e293b; padding: 20px; border-radius: 12px; max-width: 800px; }
   </style>
 </head>
 <body>
 
   <h1>Panel de Control de Tanques 🌡️</h1>
-
-  <div class="container" id="tanks">Cargando sensores...</div>
+  <div class="container" id="tanks">Buscando datos en Supabase...</div>
 
   <div id="chartBox">
-    <h2 id="chartTitle" style="text-align:center;"></h2>
+    <h2 id="chartTitle"></h2>
     <canvas id="tempChart"></canvas>
   </div>
 
   <script>
-    // 1. CONFIGURACIÓN (Reemplaza con tus credenciales si no funcionan)
+    // Configuración con tus datos reales
     const SUPABASE_URL = "https://cdkmxeuktheztkxkyimk.supabase.co";
-    const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNka214ZXVrdGhlenRreGt5aW1rIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzgxOTIzNTAsImV4cCI6MjA1Mzc2ODM1MH0.sU-6-f9HInE5p2D_DOnlY0TIdHkR4_m0u47Qh88S_Yk";
+    const SUPABASE_KEY = "sb_publishable_nRag0yBaTFVIxXoFKd-tXg_0xdA8rkY"; 
     const client = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-    let chart;
-
-    // 2. FUNCIÓN PARA CARGAR LOS TANQUES
     async function cargarDatos() {
-      const { data, error } = await client
-        .from("readings")
-        .select("*")
-        .order("created_at", { ascending: false });
-
+      const { data, error } = await client.from("readings").select("*").order("created_at", { ascending: false });
+      
       if (error) {
-        console.log("Error cargando datos:", error);
+        document.getElementById("tanks").innerHTML = "Error al conectar con la base de datos.";
         return;
       }
 
-      const grupos = {};
-      data.forEach(r => {
-        if (!grupos[r.device_id]) {
-          grupos[r.device_id] = r;
-        }
-      });
+      // Agrupar el último dato de cada tanque
+      const tanques = {};
+      data.forEach(r => { if (!tanques[r.device_id]) tanques[r.device_id] = r; });
 
       let html = "";
-      Object.keys(grupos).forEach(nombre => {
-        const ultima = grupos[nombre];
-        const fechaEC = new Date(ultima.created_at).toLocaleString("es-EC", { timeZone: "America/Guayaquil" });
-
+      Object.keys(tanques).forEach(id => {
+        const d = tanques[id];
+        const hora = new Date(d.created_at).toLocaleTimeString();
+        
         html += `
           <div class="tank-card">
-            <div onclick="mostrarGrafico('${nombre}')">
-              <div class="tank-name">${nombre}</div>
-              <div class="tank-last">
-                🌡 ${ultima.temperature} °C<br>
-                <small style="color:gray; font-size:12px;">${fechaEC}</small>
-              </div>
-            </div>
-            <button class="btn-medir" onclick="solicitarLectura('${nombre}')">
-              🔄 Medir ahora
-            </button>
+            <div class="tank-name">${id}</div>
+            <div class="temp-val">${d.temperature} °C</div>
+            <div style="font-size:12px; color:#94a3b8; margin-bottom:15px;">Última vez: ${hora}</div>
+            <button class="btn-medir" onclick="solicitarLectura('${id}')">🔄 Medir ahora</button>
           </div>
         `;
       });
-
       document.getElementById("tanks").innerHTML = html;
     }
 
-    // 3. FUNCIÓN PARA ENVIAR EL COMANDO AL ESP32
     async function solicitarLectura(tanque) {
       const { error } = await client
         .from('comandos')
-        .insert([{ 
-          device_id: tanque, 
-          accion: 'medir_ahora', 
-          leido: false 
-        }]);
+        .insert([{ device_id: tanque, accion: 'medir_ahora', leido: false }]);
 
       if (error) {
-        console.error("Error al enviar comando:", error);
-        alert("No se pudo enviar la orden.");
+        alert("Error al enviar orden");
       } else {
-        alert("¡Orden enviada! El ESP32 recibirá la instrucción pronto.");
+        alert("¡Orden enviada! Revisa tu ESP32.");
       }
     }
 
-    // 4. FUNCIÓN PARA MOSTRAR LA GRÁFICA (Al hacer clic en el nombre)
-    async function mostrarGrafico(tanque) {
-      const { data, error } = await client
-        .from("readings")
-        .select("*")
-        .eq("device_id", tanque)
-        .order("created_at", { ascending: true });
-
-      if (error) return;
-
-      const fechas = data.map(row => new Date(row.created_at).toLocaleTimeString());
-      const temperaturas = data.map(row => row.temperature);
-
-      document.getElementById("chartBox").style.display = "block";
-      document.getElementById("chartTitle").innerText = "Historial: " + tanque;
-
-      if (chart) chart.destroy();
-      const ctx = document.getElementById("tempChart").getContext("2d");
-      chart = new Chart(ctx, {
-        type: "line",
-        data: {
-          labels: fechas,
-          datasets: [{
-            label: 'Temperatura °C',
-            data: temperaturas,
-            borderColor: '#10b981',
-            tension: 0.3,
-            fill: true,
-            backgroundColor: 'rgba(16, 185, 129, 0.1)'
-          }]
-        },
-        options: { responsive: true, scales: { y: { beginAtZero: false } } }
-      });
-    }
-
-    // Iniciar y refrescar cada 30 segundos
     cargarDatos();
-    setInterval(cargarDatos, 30000);
+    setInterval(cargarDatos, 10000); // Se actualiza cada 10 segundos
   </script>
 </body>
 </html>
