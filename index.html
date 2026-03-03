@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Monitoreo de Tanques</title>
+  <title>Monitoreo SaaS - Bryan</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
@@ -31,148 +31,171 @@
       width: 250px;
       padding: 20px;
       border-radius: 12px;
-      cursor: pointer;
       transition: 0.2s;
-    }
-
-    .tank-card:hover {
-      transform: scale(1.05);
+      box-shadow: 0 4px 6px rgba(0,0,0,0.3);
     }
 
     .tank-name {
       font-size: 22px;
       font-weight: bold;
+      cursor: pointer;
     }
 
     .tank-last {
-      font-size: 14px;
-      opacity: 0.7;
       margin-top: 10px;
+      font-size: 18px;
+      color: #10b981;
+      cursor: pointer;
     }
 
-    .chart-container {
-      margin-top: 40px;
+    .btn-medir {
+      background: #10b981;
+      color: white;
+      border: none;
+      padding: 10px;
+      width: 100%;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: bold;
+      margin-top: 15px;
+      transition: 0.3s;
+    }
+
+    .btn-medir:hover {
+      background: #059669;
+      transform: scale(1.02);
+    }
+
+    #chartBox {
+      display: none;
+      margin-top: 50px;
       background: #1e293b;
       padding: 20px;
       border-radius: 12px;
-      display: none;
-    }
-
-    canvas {
-      background: white;
-      border-radius: 10px;
+      max-width: 800px;
+      margin-left: auto;
+      margin-right: auto;
     }
   </style>
 </head>
 <body>
 
-<h1>🌊 Monitoreo de Tanques</h1>
+  <h1>Panel de Control de Tanques 🌡️</h1>
 
-<div class="container" id="tanks"></div>
+  <div class="container" id="tanks">Cargando sensores...</div>
 
-<div class="chart-container" id="chartBox">
-  <h2 id="chartTitle"></h2>
-  <canvas id="tempChart"></canvas>
-</div>
+  <div id="chartBox">
+    <h2 id="chartTitle" style="text-align:center;"></h2>
+    <canvas id="tempChart"></canvas>
+  </div>
 
-<script>
-  const SUPABASE_URL = "https://cdkmxeuktheztkxkyimk.supabase.co";
-  const SUPABASE_KEY = "sb_publishable_nRag0yBaTFVIxXoFKd-tXg_0xdA8rkY";
+  <script>
+    // 1. CONFIGURACIÓN (Reemplaza con tus credenciales si no funcionan)
+    const SUPABASE_URL = "https://cdkmxeuktheztkxkyimk.supabase.co";
+    const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNka214ZXVrdGhlenRreGt5aW1rIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzgxOTIzNTAsImV4cCI6MjA1Mzc2ODM1MH0.sU-6-f9HInE5p2D_DOnlY0TIdHkR4_m0u47Qh88S_Yk";
+    const client = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-  const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    let chart;
 
-  let chart;
+    // 2. FUNCIÓN PARA CARGAR LOS TANQUES
+    async function cargarDatos() {
+      const { data, error } = await client
+        .from("readings")
+        .select("*")
+        .order("created_at", { ascending: false });
 
-  async function cargarTanques() {
-
-    const { data, error } = await client
-      .from("readings")
-      .select("*")
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      console.log(error);
-      return;
-    }
-
-    // Agrupar por tanque
-    const tanques = {};
-
-    data.forEach(row => {
-      if (!tanques[row.device_id]) {
-        tanques[row.device_id] = [];
+      if (error) {
+        console.log("Error cargando datos:", error);
+        return;
       }
-      tanques[row.device_id].push(row);
-    });
 
-    let html = "";
+      const grupos = {};
+      data.forEach(r => {
+        if (!grupos[r.device_id]) {
+          grupos[r.device_id] = r;
+        }
+      });
 
-    Object.keys(tanques).forEach(nombre => {
-      const ultima = tanques[nombre][0];
+      let html = "";
+      Object.keys(grupos).forEach(nombre => {
+        const ultima = grupos[nombre];
+        const fechaEC = new Date(ultima.created_at).toLocaleString("es-EC", { timeZone: "America/Guayaquil" });
 
-      const fechaEC = new Date(ultima.created_at)
-        .toLocaleString("es-EC", { timeZone: "America/Guayaquil" });
-
-      html += `
-        <div class="tank-card" onclick="mostrarGrafico('${nombre}')">
-          <div class="tank-name">${nombre}</div>
-          <div class="tank-last">
-            🌡 ${ultima.temperature} °C<br>
-            ${fechaEC}
+        html += `
+          <div class="tank-card">
+            <div onclick="mostrarGrafico('${nombre}')">
+              <div class="tank-name">${nombre}</div>
+              <div class="tank-last">
+                🌡 ${ultima.temperature} °C<br>
+                <small style="color:gray; font-size:12px;">${fechaEC}</small>
+              </div>
+            </div>
+            <button class="btn-medir" onclick="solicitarLectura('${nombre}')">
+              🔄 Medir ahora
+            </button>
           </div>
-        </div>
-      `;
-    });
+        `;
+      });
 
-    document.getElementById("tanks").innerHTML = html;
-  }
-
-  async function mostrarGrafico(tanque) {
-
-    const { data, error } = await client
-      .from("readings")
-      .select("*")
-      .eq("device_id", tanque)
-      .order("created_at", { ascending: true });
-
-    if (error) {
-      console.log(error);
-      return;
+      document.getElementById("tanks").innerHTML = html;
     }
 
-    const fechas = data.map(row =>
-      new Date(row.created_at)
-        .toLocaleString("es-EC", { timeZone: "America/Guayaquil" })
-    );
+    // 3. FUNCIÓN PARA ENVIAR EL COMANDO AL ESP32
+    async function solicitarLectura(tanque) {
+      const { error } = await client
+        .from('comandos')
+        .insert([{ 
+          device_id: tanque, 
+          accion: 'medir_ahora', 
+          leido: false 
+        }]);
 
-    const temperaturas = data.map(row => row.temperature);
-
-    document.getElementById("chartBox").style.display = "block";
-    document.getElementById("chartTitle").innerText = tanque;
-
-    if (chart) {
-      chart.destroy();
-    }
-
-    const ctx = document.getElementById("tempChart").getContext("2d");
-
-    chart = new Chart(ctx, {
-      type: "line",
-      data: {
-        labels: fechas,
-        datasets: [{
-          label: "Temperatura °C",
-          data: temperaturas,
-          borderColor: "blue",
-          backgroundColor: "rgba(0,0,255,0.2)",
-          tension: 0.3
-        }]
+      if (error) {
+        console.error("Error al enviar comando:", error);
+        alert("No se pudo enviar la orden.");
+      } else {
+        alert("¡Orden enviada! El ESP32 recibirá la instrucción pronto.");
       }
-    });
-  }
+    }
 
-  cargarTanques();
-</script>
+    // 4. FUNCIÓN PARA MOSTRAR LA GRÁFICA (Al hacer clic en el nombre)
+    async function mostrarGrafico(tanque) {
+      const { data, error } = await client
+        .from("readings")
+        .select("*")
+        .eq("device_id", tanque)
+        .order("created_at", { ascending: true });
 
+      if (error) return;
+
+      const fechas = data.map(row => new Date(row.created_at).toLocaleTimeString());
+      const temperaturas = data.map(row => row.temperature);
+
+      document.getElementById("chartBox").style.display = "block";
+      document.getElementById("chartTitle").innerText = "Historial: " + tanque;
+
+      if (chart) chart.destroy();
+      const ctx = document.getElementById("tempChart").getContext("2d");
+      chart = new Chart(ctx, {
+        type: "line",
+        data: {
+          labels: fechas,
+          datasets: [{
+            label: 'Temperatura °C',
+            data: temperaturas,
+            borderColor: '#10b981',
+            tension: 0.3,
+            fill: true,
+            backgroundColor: 'rgba(16, 185, 129, 0.1)'
+          }]
+        },
+        options: { responsive: true, scales: { y: { beginAtZero: false } } }
+      });
+    }
+
+    // Iniciar y refrescar cada 30 segundos
+    cargarDatos();
+    setInterval(cargarDatos, 30000);
+  </script>
 </body>
 </html>
