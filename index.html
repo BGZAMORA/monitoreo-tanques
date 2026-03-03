@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Monitoreo de Tanques</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', sans-serif;
+      background: #0f172a;
+      color: white;
+      padding: 30px;
+    }
+
+    h1 {
+      text-align: center;
+      margin-bottom: 40px;
+      font-weight: 300;
+    }
+
+    .container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+      justify-content: center;
+    }
+
+    .tank-card {
+      background: #1e293b;
+      width: 250px;
+      padding: 20px;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+
+    .tank-card:hover {
+      transform: scale(1.05);
+    }
+
+    .tank-name {
+      font-size: 22px;
+      font-weight: bold;
+    }
+
+    .tank-last {
+      font-size: 14px;
+      opacity: 0.7;
+      margin-top: 10px;
+    }
+
+    .chart-container {
+      margin-top: 40px;
+      background: #1e293b;
+      padding: 20px;
+      border-radius: 12px;
+      display: none;
+    }
+
+    canvas {
+      background: white;
+      border-radius: 10px;
+    }
+  </style>
+</head>
+<body>
+
+<h1>🌊 Monitoreo de Tanques</h1>
+
+<div class="container" id="tanks"></div>
+
+<div class="chart-container" id="chartBox">
+  <h2 id="chartTitle"></h2>
+  <canvas id="tempChart"></canvas>
+</div>
+
+<script>
+  const SUPABASE_URL = "https://cdkmxeuktheztkxkyimk.supabase.co";
+  const SUPABASE_KEY = "sb_publishable_nRag0yBaTFVIxXoFKd-tXg_0xdA8rkY";
+
+  const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  let chart;
+
+  async function cargarTanques() {
+
+    const { data, error } = await client
+      .from("readings")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.log(error);
+      return;
+    }
+
+    // Agrupar por tanque
+    const tanques = {};
+
+    data.forEach(row => {
+      if (!tanques[row.device_id]) {
+        tanques[row.device_id] = [];
+      }
+      tanques[row.device_id].push(row);
+    });
+
+    let html = "";
+
+    Object.keys(tanques).forEach(nombre => {
+      const ultima = tanques[nombre][0];
+
+      const fechaEC = new Date(ultima.created_at)
+        .toLocaleString("es-EC", { timeZone: "America/Guayaquil" });
+
+      html += `
+        <div class="tank-card" onclick="mostrarGrafico('${nombre}')">
+          <div class="tank-name">${nombre}</div>
+          <div class="tank-last">
+            🌡 ${ultima.temperature} °C<br>
+            ${fechaEC}
+          </div>
+        </div>
+      `;
+    });
+
+    document.getElementById("tanks").innerHTML = html;
+  }
+
+  async function mostrarGrafico(tanque) {
+
+    const { data, error } = await client
+      .from("readings")
+      .select("*")
+      .eq("device_id", tanque)
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      console.log(error);
+      return;
+    }
+
+    const fechas = data.map(row =>
+      new Date(row.created_at)
+        .toLocaleString("es-EC", { timeZone: "America/Guayaquil" })
+    );
+
+    const temperaturas = data.map(row => row.temperature);
+
+    document.getElementById("chartBox").style.display = "block";
+    document.getElementById("chartTitle").innerText = tanque;
+
+    if (chart) {
+      chart.destroy();
+    }
+
+    const ctx = document.getElementById("tempChart").getContext("2d");
+
+    chart = new Chart(ctx, {
+      type: "line",
+      data: {
+        labels: fechas,
+        datasets: [{
+          label: "Temperatura °C",
+          data: temperaturas,
+          borderColor: "blue",
+          backgroundColor: "rgba(0,0,255,0.2)",
+          tension: 0.3
+        }]
+      }
+    });
+  }
+
+  cargarTanques();
+</script>
+
+</body>
+</html>
