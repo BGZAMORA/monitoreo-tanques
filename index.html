@@ -1,131 +1,179 @@
-#include <WiFi.h>
-#include <HTTPClient.h>
-#include <OneWire.h>
-#include <DallasTemperature.h>
-#include <Wire.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Monitoreo de Tanques</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', sans-serif;
+      background: #0f172a;
+      color: white;
+      padding: 30px;
+    }
 
-// ===== WIFI =====
-const char* ssid = "CNT_ZAMORA_2G";
-const char* password = "1003659636";
+    h1 {
+      text-align: center;
+      margin-bottom: 40px;
+      font-weight: 300;
+    }
 
-// ===== SUPABASE =====
-const char* supabaseUrl = "https://cdkmxeuktheztkxkyimk.supabase.co/rest/v1";
-const char* supabaseKey = "sb_publishable_nRag0yBaTFVIxXoFKd-tXg_0xdA8rkY";
+    .container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+      justify-content: center;
+    }
 
-// ===== DEVICE =====
-const char* device_id = "tanque_1";
+    .tank-card {
+      background: #1e293b;
+      width: 250px;
+      padding: 20px;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: 0.2s;
+    }
 
-// ===== DEEP SLEEP =====
-#define SLEEP_TIME 1200  // 20 minutos
+    .tank-card:hover {
+      transform: scale(1.05);
+    }
 
-// ===== DS18B20 =====
-#define ONE_WIRE_BUS 4
-OneWire oneWire(ONE_WIRE_BUS);
-DallasTemperature sensors(&oneWire);
+    .tank-name {
+      font-size: 22px;
+      font-weight: bold;
+    }
 
-// ===== OLED =====
-#define SCREEN_WIDTH 128
-#define SCREEN_HEIGHT 64
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+    .tank-last {
+      font-size: 14px;
+      opacity: 0.7;
+      margin-top: 10px;
+    }
 
-void setup() {
-  Serial.begin(115200);
+    .chart-container {
+      margin-top: 40px;
+      background: #1e293b;
+      padding: 20px;
+      border-radius: 12px;
+      display: none;
+    }
 
-  // Iniciar I2C manualmente (por si acaso)
-  Wire.begin(21, 22);
+    canvas {
+      background: white;
+      border-radius: 10px;
+    }
+  </style>
+</head>
+<body>
 
-  // Iniciar OLED
-  if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
-    Serial.println("OLED no detectada");
+<h1>🌊 Monitoreo de Tanques</h1>
+
+<div class="container" id="tanks"></div>
+
+<div class="chart-container" id="chartBox">
+  <h2 id="chartTitle"></h2>
+  <canvas id="tempChart"></canvas>
+</div>
+
+<script>
+  const SUPABASE_URL = "https://cdkmxeuktheztkxkyimk.supabase.co";
+  const SUPABASE_KEY = "sb_publishable_nRag0yBaTFVIxXoFKd-tXg_0xdA8rkY";
+
+  const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  let chart;
+
+  async function cargarTanques() {
+
+    const { data, error } = await client
+      .from("readings")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.log(error);
+      return;
+    }
+
+    // Agrupar por tanque
+    const tanques = {};
+
+    data.forEach(row => {
+      if (!tanques[row.device_id]) {
+        tanques[row.device_id] = [];
+      }
+      tanques[row.device_id].push(row);
+    });
+
+    let html = "";
+
+    Object.keys(tanques).forEach(nombre => {
+      const ultima = tanques[nombre][0];
+
+      const fechaEC = new Date(ultima.created_at)
+        .toLocaleString("es-EC", { timeZone: "America/Guayaquil" });
+
+      html += `
+        <div class="tank-card" onclick="mostrarGrafico('${nombre}')">
+          <div class="tank-name">${nombre}</div>
+          <div class="tank-last">
+            🌡 ${ultima.temperature} °C<br>
+            ${fechaEC}
+          </div>
+        </div>
+      `;
+    });
+
+    document.getElementById("tanks").innerHTML = html;
   }
 
-  display.clearDisplay();
-  display.setTextSize(1);
-  display.setTextColor(WHITE);
+  async function mostrarGrafico(tanque) {
 
-  sensors.begin();
+    const { data, error } = await client
+      .from("readings")
+      .select("*")
+      .eq("device_id", tanque)
+      .order("created_at", { ascending: true });
 
-  conectarWiFi();
+    if (error) {
+      console.log(error);
+      return;
+    }
 
-  sensors.requestTemperatures();
-  float temperature = sensors.getTempCByIndex(0);
+    const fechas = data.map(row =>
+      new Date(row.created_at)
+        .toLocaleString("es-EC", { timeZone: "America/Guayaquil" })
+    );
 
-  if (temperature == DEVICE_DISCONNECTED_C) {
-    mostrarOLED("Error sensor");
-    goToSleep();
+    const temperaturas = data.map(row => row.temperature);
+
+    document.getElementById("chartBox").style.display = "block";
+    document.getElementById("chartTitle").innerText = tanque;
+
+    if (chart) {
+      chart.destroy();
+    }
+
+    const ctx = document.getElementById("tempChart").getContext("2d");
+
+    chart = new Chart(ctx, {
+      type: "line",
+      data: {
+        labels: fechas,
+        datasets: [{
+          label: "Temperatura °C",
+          data: temperaturas,
+          borderColor: "blue",
+          backgroundColor: "rgba(0,0,255,0.2)",
+          tension: 0.3
+        }]
+      }
+    });
   }
 
-  mostrarOLED("Temp: " + String(temperature) + " C");
+  cargarTanques();
+</script>
 
-  enviarASupabase(temperature);
-
-  delay(4000);
-  goToSleep();
-}
-
-void loop() {}
-
-// =============================
-
-void conectarWiFi() {
-  display.clearDisplay();
-  display.setCursor(0,0);
-  display.println("Conectando WiFi...");
-  display.display();
-
-  WiFi.begin(ssid, password);
-
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-  }
-}
-
-void enviarASupabase(float temperature) {
-  if (WiFi.status() == WL_CONNECTED) {
-
-    HTTPClient http;
-    http.begin(supabaseUrl);
-
-    http.addHeader("Content-Type", "application/json");
-    http.addHeader("apikey", supabaseKey);
-    http.addHeader("Authorization", "Bearer " + String(supabaseKey));
-    http.addHeader("Prefer", "return=minimal");
-
-    String json = "{";
-    json += "\"device_id\":\"" + String(device_id) + "\",";
-    json += "\"temperature\":" + String(temperature);
-    json += "}";
-
-    int httpResponseCode = http.POST(json);
-    Serial.println("HTTP: " + String(httpResponseCode));
-
-    http.end();
-  }
-}
-
-void mostrarOLED(String mensaje) {
-  display.clearDisplay();
-  display.setCursor(0,0);
-  display.println("Tanque 1");
-  display.println("----------------");
-  display.println(mensaje);
-  display.display();
-}
-
-void goToSleep() {
-  WiFi.disconnect(true);
-  WiFi.mode(WIFI_OFF);
-
-  display.clearDisplay();
-  display.setCursor(0,0);
-  display.println("Sleep 20 min...");
-  display.display();
-
-  delay(2000);
-
-  esp_sleep_enable_timer_wakeup((uint64_t)SLEEP_TIME * 1000000);
-  esp_deep_sleep_start();
-}
+</body>
+</html>
 
